@@ -40,9 +40,14 @@ class SimpleScheduler(BaseScheduler):
         if not host_pool:
             return []
         host_pool = [x for x in host_pool]
-        # shuffle for pseudo random selection
-        random.shuffle(host_pool)
-        return host_pool[:count]
+        # We don't want to have actual random selection here
+        # We want to be able to determine the outcome of this
+        # sample function. using a fixed seed of 0 here to work around that
+        if not count:
+            # sample doesn't accept `None` for k
+            # None means; return all
+            count = len(host_pool)
+        return random.Random(0).sample(host_pool, count)
 
 
 class HostAssignment(object):
