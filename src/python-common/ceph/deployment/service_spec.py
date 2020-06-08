@@ -477,6 +477,22 @@ class ServiceSpec(object):
     def __repr__(self):
         return "{}({!r})".format(self.__class__.__name__, self.__dict__)
 
+    def __hash__(self):
+        """
+        Compute the hash based on immutable attribute
+
+        TODO: Placement is _currently_ immutable, but may not stay that way
+              If we however stay with only service_name we have to make sure
+              that service_name() is unique, which isn't the case currently.
+        """
+        # return hash((self.service_name(), self.placement))
+        return hash(self.service_name())
+
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__
+                and
+                self.service_name() == other.service_name())
+
     def one_line_str(self):
         return '<{} for service_name={}>'.format(self.__class__.__name__, self.service_name())
 
