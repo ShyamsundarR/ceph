@@ -1795,42 +1795,66 @@ you may want to run:
 
         # add any?
         did_config = False
+
+
+        # TODO: !!!
+        ###### THIS LOGIC SHOULD GO INTO THE SCHEDULER #####
         hosts_with_daemons = {d.hostname for d in daemons}
-        self.log.debug('hosts with daemons: %s' % hosts_with_daemons)
-        for host, network, name in hosts:
-            if host not in hosts_with_daemons:
-                if not did_config and config_func:
-                    config_func(spec)
-                    did_config = True
-                daemon_id = self.get_unique_name(daemon_type, host, daemons,
-                                                 prefix=spec.service_id,
-                                                 forcename=name)
-                self.log.debug('Placing %s.%s on host %s' % (
-                    daemon_type, daemon_id, host))
-                if daemon_type == 'mon':
-                    create_func(daemon_id, host, network)  # type: ignore
-                elif daemon_type in ['nfs', 'iscsi']:
-                    create_func(daemon_id, host, spec)  # type: ignore
-                else:
-                    create_func(daemon_id, host)  # type: ignore
 
-                # add to daemon list so next name(s) will also be unique
-                sd = orchestrator.DaemonDescription(
-                    hostname=host,
-                    daemon_type=daemon_type,
-                    daemon_id=daemon_id,
-                )
-                daemons.append(sd)
-                r = True
+        add_daemon_hosts = set()
+        # TODO: figure out which set operation is most suitable for this
+        for host in hosts:
+            if host.name not in hosts_with_daemons:
+                add_daemon_hosts.add(host)
 
-        # remove any?
+        self.log.debug('hosts that will receive new daemons: %s' % add_daemon_hosts)
+
+        remove_daemon_hosts = set()
+        # TODO: figure out which set operation is most suitable for this
         target_hosts = [h.hostname for h in hosts]
         for d in daemons:
             if d.hostname not in target_hosts:
-                # NOTE: we are passing the 'force' flag here, which means
-                # we can delete a mon instances data.
-                self._remove_daemon(d.name(), d.hostname)
-                r = True
+                remove_daemon_hosts.add(d)
+
+        self.log.debug('hosts that will loose daemons: %s' % remove_daemon_hosts)
+
+        # potentially even in a new scheduler that is resource aware..
+
+        ###### THIS LOGIC SHOULD GO INTO THE SCHEDULER #####
+        # TODO: !!!
+
+        self.log.debug('hosts with daemons: %s' % hosts_with_daemons)
+        for host, network, name in add_daemon_hosts:
+            if not did_config and config_func:
+                config_func(spec)
+                did_config = True
+            daemon_id = self.get_unique_name(daemon_type, host, daemons,
+                                             prefix=spec.service_id,
+                                             forcename=name)
+            self.log.debug('Placing %s.%s on host %s' % (
+                daemon_type, daemon_id, host))
+            if daemon_type == 'mon':
+                create_func(daemon_id, host, network)  # type: ignore
+            elif daemon_type in ['nfs', 'iscsi']:
+                create_func(daemon_id, host, spec)  # type: ignore
+            else:
+                create_func(daemon_id, host)  # type: ignore
+
+            # add to daemon list so next name(s) will also be unique
+            sd = orchestrator.DaemonDescription(
+                hostname=host,
+                daemon_type=daemon_type,
+                daemon_id=daemon_id,
+            )
+            daemons.append(sd)
+            r = True
+
+        # remove any?
+        for d in remove_daemon_hosts:
+            # NOTE: we are passing the 'force' flag here, which means
+            # we can delete a mon instances data.
+            self._remove_daemon(d.name(), d.hostname)
+            r = True
 
         return r
 
@@ -1983,7 +2007,55 @@ you may want to run:
 
         return self._apply_service_spec(cast(ServiceSpec, spec))
 
-    def _apply_service_spec(self, spec: ServiceSpec) -> str:
+    def _plan(self, spec: ServiceSpec):
+        service_name = spec.service_name()
+        daemons = self.cache.get_daemons_by_service(service_name)
+
+        ha = HostAssignment(
+            spec=spec,
+            get_hosts_func=self._get_hosts,
+            get_daemons_func=self.cache.get_daemons_by_service,
+        )
+        ha.validate()
+        hosts = ha.place()
+
+        if isinstance(spec, DriveGroupSpec):
+            return self.preview_osdspecs(osdspec_name=service_name)
+
+        ###### THIS LOGIC SHOULD GO INTO THE SCHEDULER #####
+        hosts_with_daemons = {d.hostname for d in daemons}
+
+        add_daemon_hosts = set()
+        # TODO: figure out which set operation is most suitable for this
+        for host in hosts:
+            if host.name not in hosts_with_daemons:
+                add_daemon_hosts.add(host)
+
+        self.log.debug('hosts that will receive new daemons: %s' % add_daemon_hosts)
+
+        remove_daemon_hosts = set()
+        # TODO: figure out which set operation is most suitable for this
+        target_hosts = [h.hostname for h in hosts]
+        for d in daemons:
+            if d.hostname not in target_hosts:
+                remove_daemon_hosts.add(d)
+
+        self.log.debug('hosts that will loose daemons: %s' % remove_daemon_hosts)
+
+        # potentially even in a new scheduler that is resource aware..
+
+        ###### THIS LOGIC SHOULD GO INTO THE SCHEDULER #####
+
+        return add_daemon_hosts, remove_daemon_hosts
+
+    @trivial_completion
+    def plan(self, specs: List[GenericSpec]):
+        results = []
+        for spec in specs:
+            results.append(self._plan(spec))
+        return results
+
+    def _apply_service_spec(self, spec: ServiceSpec, planning: bool = True) -> str:
         if spec.placement.is_empty():
             # fill in default placement
             defaults = {
@@ -2012,6 +2084,10 @@ you may want to run:
             get_hosts_func=self._get_hosts,
             get_daemons_func=self.cache.get_daemons_by_service,
         ).validate()
+
+        # This is the earliest point where we can compute a placement and return it back
+        # to the user.
+
 
         self.log.info('Saving service %s spec with placement %s' % (
             spec.service_name(), spec.placement.pretty_str()))

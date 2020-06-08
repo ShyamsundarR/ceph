@@ -1010,6 +1010,31 @@ Usage:
         return HandleCommandResult(stdout=completion.result_str())
 
     @_cli_write_command(
+        'orch plan',
+        'name=service_type,type=CephChoices,strings=mon|mgr|rbd-mirror|crash|alertmanager|grafana|node-exporter|prometheus,req=false '
+        'name=unmanaged,type=CephBool,req=false',
+        'Update the size or placement for a service or apply a large yaml spec')
+    def _plan_services(self, service_type: Optional[str] = None,
+                       inbuf: Optional[str] = None) -> HandleCommandResult:
+        usage = """Usage:
+    ceph orch plan -i <yaml spec>
+    ceph orch plan <service_type> 
+          """
+        if not inbuf:
+            raise OrchestratorValidationError('unrecognized command -i; -h or --help for usage')
+
+        content: Iterator = yaml.load_all(inbuf)
+        specs: List[GenericSpec] = [json_to_generic_spec(s) for s in content]
+
+
+        # TODO: implement support for existing specs with --service-name
+
+        completion = self.plan(specs)
+        self._orchestrator_wait([completion])
+        raise_if_exception(completion)
+        return HandleCommandResult(stdout=completion.result_str())
+
+    @_cli_write_command(
         'orch apply mds',
         'name=fs_name,type=CephString '
         'name=placement,type=CephString,req=false '
