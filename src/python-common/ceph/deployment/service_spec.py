@@ -484,6 +484,8 @@ class ServiceSpec(object):
         TODO: Placement is _currently_ immutable, but may not stay that way
               If we however stay with only service_name we have to make sure
               that service_name() is unique, which isn't the case currently.
+              Probably add a verification that checks if a spec with service_name
+              already exists and either reject or assign an internal tracking id
         """
         # return hash((self.service_name(), self.placement))
         return hash(self.service_name())

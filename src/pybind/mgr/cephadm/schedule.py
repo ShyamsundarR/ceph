@@ -17,9 +17,9 @@ class BaseScheduler(object):
     `place(host_pool)` needs to return a List[HostPlacementSpec, ..]
     """
 
-    def __init__(self, placement_spec):
+    def __init__(self, spec):
         # type: (PlacementSpec) -> None
-        self.placement_spec = placement_spec
+        self.spec = spec
 
     def place(self, host_pool, count=None):
         # type: (List, Optional[int]) -> List[HostPlacementSpec]
@@ -32,22 +32,31 @@ class SimpleScheduler(BaseScheduler):
     1) Shuffle the provided host_pool
     2) Select from list up to :count
     """
-    def __init__(self, placement_spec):
-        super(SimpleScheduler, self).__init__(placement_spec)
+    def __init__(self, spec):
+        super(SimpleScheduler, self).__init__(spec)
 
     def place(self, host_pool, count=None):
         # type: (List, Optional[int]) -> List[HostPlacementSpec]
         if not host_pool:
             return []
         host_pool = [x for x in host_pool]
+
         # We don't want to have actual random selection here
-        # We want to be able to determine the outcome of this
-        # sample function. using a fixed seed of 0 here to work around that
+        # rather, compute the sample based on a hash of the spec
+        # This ensures that we have a deterministic way of assigning hosts
+        # based on the spec
+        seed = hash(self.spec)
+
         if not count:
             # sample doesn't accept `None` for k
             # None means; return all
             count = len(host_pool)
-        return random.Random(0).sample(host_pool, count)
+
+        if count > len(host_pool):
+            logging.warning(f"'count' can't be larger than list of hosts, falling back to {len(host_pool)}")
+            count = len(host_pool)
+
+        return random.Random(seed).sample(host_pool, count)
 
 
 class HostAssignment(object):
@@ -71,12 +80,11 @@ class HostAssignment(object):
                  ):
         assert spec and get_hosts_func and get_daemons_func
         self.spec = spec  # type: ServiceSpec
-        self.scheduler = scheduler if scheduler else SimpleScheduler(self.spec.placement)
+        self.scheduler = scheduler if scheduler else SimpleScheduler(self.spec)
         self.get_hosts_func = get_hosts_func
         self.get_daemons_func = get_daemons_func
         self.filter_new_host = filter_new_host
         self.service_name = spec.service_name()
-
 
     def validate(self):
         self.spec.validate()

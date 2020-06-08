@@ -159,7 +159,7 @@ def test_servicespec_map_test(s_type, o_spec, s_id):
                                      True
                              ),
 
-                             # ... add more once we have a clear path
+                             # TODO: ... add more once we have a clear path
 
                          ])
 def test_spec_hash_eq(spec1: ServiceSpec,
